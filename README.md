@@ -1,8 +1,18 @@
 # educational-yad2-telegram-bot
 
-> **Educational demo.** Built to show how a Telegram bot, a tiny local LLM,
-> and a real-world scraper-vs-anti-bot fight fit together in one
-> `docker compose` stack. Not for commercial use. Yad2's data is theirs.
+> ## ⚠️ For educational purposes only
+>
+> This repo is a **classroom demo** of how a Telegram bot, a tiny local LLM,
+> and a web-scraping pipeline fit together. **Before you run it, read
+> [`DISCLAIMER.md`](./DISCLAIMER.md) and Yad2's
+> [Terms of Use](https://www.yad2.co.il/) and
+> [`robots.txt`](https://www.yad2.co.il/robots.txt).**
+>
+> Automated access to Yad2 may be restricted or prohibited by those terms,
+> and applicable law (Israel's Computer Law, GDPR, CFAA, etc.) is *your*
+> responsibility — not the authors'. Not affiliated with Yad2, Radware,
+> ScrapingBee, Telegram, or Ollama. No warranty. Don't deploy at scale or
+> commercially.
 
 Hourly Telegram bot that fetches the top apartment listing from
 [yad2.co.il/realestate/rent](https://www.yad2.co.il/realestate/rent),
@@ -91,7 +101,10 @@ Stretch it with `SCRAPE_INTERVAL_MIN=240` (~5 days) in `.env`.
   not strict newest-first. Override `YAD2_URL` for a focused feed.
 - ScrapingBee credits are spent on every call, including failed ones.
 
-## License
+## License & legal
 
-MIT, for educational use. Don't deploy this against Yad2 at scale — it's a
-classroom demo, not a product.
+MIT, for educational use. By using this repository you accept
+[`DISCLAIMER.md`](./DISCLAIMER.md) — including the obligation to read and
+comply with Yad2's and ScrapingBee's terms of service before running any
+of this code. Don't deploy this against Yad2 at scale; it's a classroom
+demo, not a product.
