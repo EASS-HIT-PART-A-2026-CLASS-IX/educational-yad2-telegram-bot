@@ -1,139 +1,97 @@
 # educational-yad2-telegram-bot
 
-Hourly Telegram bot that watches [yad2.co.il/realestate/rent](https://www.yad2.co.il/realestate/rent)
-for new apartment listings, summarises each one with a tiny local LLM, and
-pushes it to a Telegram chat. Everything except the anti-bot proxy runs
-locally in `docker compose`.
+> **Educational demo.** Built to show how a Telegram bot, a tiny local LLM,
+> and a real-world scraper-vs-anti-bot fight fit together in one
+> `docker compose` stack. Not for commercial use. Yad2's data is theirs.
 
-> **Educational demo.** Yad2 fronts every page with Radware ShieldSquare —
-> plain `fetch`, plain Playwright, and even Playwright + stealth plugin all
-> get the captcha page. The free 1000-credit tier of
-> [ScrapingBee](https://www.scrapingbee.com/)'s `stealth_proxy` is what
-> actually defeats it. The interesting parts of this repo are the parts that
-> don't depend on that: the docker harness, the local LLM, the Telegram
-> command loop, dedup, and the polite scheduler.
+Hourly Telegram bot that fetches the top apartment listing from
+[yad2.co.il/realestate/rent](https://www.yad2.co.il/realestate/rent),
+summarises it with a 91 MB local LLM, and posts it to a Telegram chat.
 
-## Stack
+## What works
 
-| Service       | What it does                                                                |
-| ------------- | --------------------------------------------------------------------------- |
-| `ollama`      | Serves a tiny local LLM (default `smollm2:135m`, ~91 MB) for summaries.     |
-| `ollama-pull` | One-shot helper that pulls the model on first `up`.                         |
-| `bot`         | Node 20 alpine. `fetch` → ScrapingBee → cheerio parse → Ollama → Telegram.  |
+- ✅ Telegram bot harness — bidirectional, only your `chat_id` can talk to it
+- ✅ Commands: `/ping`, `/help`, `/status`, `/check`, `/force`
+- ✅ Local LLM (default `smollm2:135m` via Ollama) summarises listings
+- ✅ Hourly scrape with ±7 min jitter and per-listing dedup
+- ✅ Hostile-target scraping via ScrapingBee `stealth_proxy + render_js`
+- ✅ Whole stack boots from one `docker compose up`
 
-Image footprint: bot ~50 MB, ollama ~700 MB, model ~91 MB.
+## What we learned the hard way
 
-Politeness baked in:
+Yad2 fronts every page with Radware ShieldSquare. We tried, in order:
 
-- one ScrapingBee call per tick
-- 60 min interval ± 7 min jitter
-- dedup by listing ID, so the same flat is never re-sent
-- only your `TELEGRAM_CHAT_ID` is allowed to talk to the bot
+| Attempt                            | Result               |
+| ---------------------------------- | -------------------- |
+| Plain `fetch` + cheerio            | 302 → captcha page   |
+| `got-scraping` (TLS fingerprinting)| 302 → captcha page   |
+| Playwright headless                | Captcha page         |
+| Playwright + stealth plugin        | Captcha page         |
+| ScrapingBee `premium_proxy`        | Captcha page         |
+| **ScrapingBee `stealth_proxy`** ✓  | Real Hebrew Yad2 HTML |
 
-## Bot commands (from Telegram)
+That walk is the educational point: small sites surrender to a User-Agent
+flip, hardened sites need real residential rotation. The repo is the cheapest
+honest end-to-end demo of that journey.
 
-| Command   | Effect                                              |
-| --------- | --------------------------------------------------- |
-| `/ping`   | Bot replies `pong` — verifies the harness.          |
-| `/help`   | Prints command list.                                |
-| `/status` | Last check time, seen-id count, busy flag.          |
-| `/check`  | Force a fetch now. Sends only if listing is new.    |
-| `/force`  | Fetch now and send even if already seen.            |
-
-## Setup
-
-### 1. Create a Telegram bot (~1 min)
-
-1. Open Telegram, search **@BotFather**, send `/newbot`.
-2. Pick a name (e.g. `Yad2 Watcher`) and a unique username ending in `bot`.
-3. Copy the token from BotFather's reply.
-4. Open a chat with your new bot and send `hi` (any message will do).
-5. Visit `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser —
-   find `"chat":{"id":NUMBER,...}` and copy that number.
-
-### 2. Get a ScrapingBee API key (free)
-
-Register at <https://app.scrapingbee.com/account/register> — 1000 free
-credits, no credit card. Copy the key from the dashboard.
-
-### 3. Configure
-
-```bash
-cp .env.example .env
-# edit .env, set TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SCRAPINGBEE_API_KEY
-```
-
-### 4. Run
-
-```bash
-docker compose up -d --build
-docker compose logs -f bot
-```
-
-Within ~20 sec of the first tick you should see something like:
+## Architecture
 
 ```
-fetching https://www.yad2.co.il/realestate/rent via ScrapingBee
-got 1024636 bytes; head: <!DOCTYPE html><html dir="rtl" lang="he">...
-sent listing dwqitnt0
-next check in 56.0 min
+Telegram ⇄ bot (node:20-alpine) ──▶ ollama (smollm2:135m)
+              │
+              └──▶ ScrapingBee ──▶ yad2.co.il
 ```
 
-…and a Telegram message in your bot chat.
+| Service       | Purpose                                                       |
+| ------------- | ------------------------------------------------------------- |
+| `ollama`      | Serves the local LLM (~91 MB on disk, runs CPU-only).         |
+| `ollama-pull` | One-shot init that pulls the model on first `up`.             |
+| `bot`         | Schedules scrapes, parses HTML, talks to Telegram + LLM.      |
+
+## Quick start
+
+1. **Bot token** — message [@BotFather](https://t.me/BotFather), `/newbot`, copy the token.
+2. **Chat id** — message your new bot, then open
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` and read `chat.id`.
+3. **ScrapingBee key** — sign up free at
+   <https://app.scrapingbee.com/account/register> (1000 credits, no card).
+4. **Configure** —
+   ```bash
+   cp .env.example .env
+   # fill in TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SCRAPINGBEE_API_KEY
+   ```
+5. **Run** —
+   ```bash
+   docker compose up -d --build
+   docker compose logs -f bot
+   ```
+   Within ~20 sec a Telegram message with the top listing should arrive.
+   Send `/ping` to verify the round-trip.
 
 ## Cost note
 
-ScrapingBee's `stealth_proxy + render_js` mode is **75 credits per call** —
-the only combo that defeats Yad2's ShieldSquare. The free tier (1000 credits)
-covers about 13 hourly checks. To stretch it:
+ScrapingBee `stealth_proxy + render_js` is **75 credits per call** — the only
+combo that defeats Yad2. The free 1000 credits cover ~13 hourly checks.
+Stretch it with `SCRAPE_INTERVAL_MIN=240` (~5 days) in `.env`.
 
-- `SCRAPE_INTERVAL_MIN=240` → check every 4 hours (~5 days free demo).
-- `SCRAPE_INTERVAL_MIN=720` → twice a day (~16 days).
+## Tunable env
 
-## Tuning
-
-All knobs live in `.env`:
-
-| Var                   | Default                                    | Notes                                              |
-| --------------------- | ------------------------------------------ | -------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`  | —                                          | required                                           |
-| `TELEGRAM_CHAT_ID`    | —                                          | required                                           |
-| `SCRAPINGBEE_API_KEY` | —                                          | required (unless you replace the scraper)          |
-| `OLLAMA_MODEL`        | `smollm2:135m`                             | `smollm2:360m` or `qwen2.5:0.5b` for better text   |
-| `YAD2_URL`            | `https://www.yad2.co.il/realestate/rent`   | swap in a filtered URL (city / rooms / price)      |
-| `SCRAPE_INTERVAL_MIN` | `60`                                       | minutes between checks                             |
-| `JITTER_MIN`          | `7`                                        | ± minutes added to each interval                   |
-
-## Project layout
-
-```
-.
-├── docker-compose.yml      # ollama + ollama-pull + bot
-├── .env.example            # template for secrets
-├── README.md
-└── bot/
-    ├── Dockerfile          # node:20-alpine
-    ├── package.json        # cheerio only
-    └── src/
-        ├── index.js        # scheduler + Telegram command loop
-        ├── scraper.js      # ScrapingBee fetch + cheerio parse
-        ├── llm.js          # Ollama /api/generate client
-        ├── telegram.js     # sendMessage + long-poll getUpdates
-        └── state.js        # JSON-file dedup cache
-```
+| Var                   | Default                                    |
+| --------------------- | ------------------------------------------ |
+| `OLLAMA_MODEL`        | `smollm2:135m` (`qwen2.5:0.5b` for better Hebrew) |
+| `YAD2_URL`            | `https://www.yad2.co.il/realestate/rent`   |
+| `SCRAPE_INTERVAL_MIN` | `60`                                       |
+| `JITTER_MIN`          | `7`                                        |
 
 ## Caveats
 
-- The 135M LLM is borderline on Hebrew — if summaries look broken, bump
-  `OLLAMA_MODEL` to `qwen2.5:0.5b` (still ~400 MB) and restart `bot`.
-- Yad2's `/realestate/rent` returns a "lobby" variant to fresh visitors with
-  curated recommendations rather than strict newest-first. For truer
-  freshness, override `YAD2_URL` with something like
-  `/realestate/rent?propertyGroup=apartments,houses` or a city-specific URL.
-- ScrapingBee credits are spent on every call, including ones that come back
-  empty. The scraper logs the response size and HTML head so you can spot a
-  bad day on the proxy.
+- `smollm2:135m` is borderline on Hebrew; bump to `qwen2.5:0.5b` if summaries
+  look broken.
+- Yad2's `/realestate/rent` serves a curated **lobby** to fresh visitors —
+  not strict newest-first. Override `YAD2_URL` for a focused feed.
+- ScrapingBee credits are spent on every call, including failed ones.
 
 ## License
 
-MIT — see `LICENSE` if/when added.
+MIT, for educational use. Don't deploy this against Yad2 at scale — it's a
+classroom demo, not a product.
